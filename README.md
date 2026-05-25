@@ -15,7 +15,9 @@
 - 16 颗灯珠选择、单灯独占点亮、叠加点亮、单灯熄灭
 - 全部点亮、清空叠加、固件效果 0..16
 - IMAX、硬复位、I2C log 开关
-- 内置玩法：流光、呼吸
+- `reg`、6bit color、8bit brightness 等高级节点入口
+- 内置玩法：流光、彩虹旋转、呼吸
+- MD3 Expressive 风格原生界面：更大的触控目标、快捷色板、状态条和分组控制
 - 屏幕上的 16 灯珠预览会同步当前 App 写入状态
 
 ## 构建
@@ -32,7 +34,7 @@ gradle :app:assembleDebug
 app/build/outputs/apk/debug/app-debug.apk
 ```
 
-## GitHub Actions 构建
+## GitHub Actions 构建与发布
 
 已添加工作流：
 
@@ -47,6 +49,8 @@ app/build/outputs/apk/debug/app-debug.apk
 - 在 GitHub Actions 页面手动执行 `workflow_dispatch`
 
 构建完成后，在 Actions 运行记录的 Artifacts 中下载 `meilit-halo-debug-apk`。
+
+push 到 `main` 时，工作流还会创建或更新 `v1.0.0` Release，并把 debug APK 上传为 Release 附件。
 
 ## 权限说明
 
@@ -67,6 +71,9 @@ app/build/outputs/apk/debug/app-debug.apk
 - 全部点亮：`all_light = "{brightness} {rrggbb}"`
 - 固件效果：`effect = 0..16`
 - IMAX：`imax = 0x0..0xF`
+- 寄存器：`reg = "{reg_addr_hex} {reg_val_hex}"`
+- 6bit 色彩：`rgbcolor` / `allrgbcolor`
+- 8bit RGB 亮度：`rgbbrightness` / `allrgbbrightness`
 
 亮度按内核约束裁剪到 `1..63`，`alone_light` 允许 `brightness = 0`。
 
@@ -76,4 +83,4 @@ app/build/outputs/apk/debug/app-debug.apk
 - 主界面和玩法循环：[MainActivity.java](app/src/main/java/com/meilit/halo/MainActivity.java)
 - 16 灯珠预览：[HaloRingView.java](app/src/main/java/com/meilit/halo/HaloRingView.java)
 
-要新增玩法，建议在 `MainActivity` 中参考 `startChase()`、`startBreath()`，通过 `controller.setLight()`、`controller.setAloneLight()` 或 `controller.setAllLight()` 组合写入。
+要新增玩法，建议在 `MainActivity` 中参考 `startChase()`、`startRainbow()`、`startBreath()`，通过 `controller.setLight()`、`controller.setAloneLight()` 或 `controller.setAllLight()` 组合写入。
