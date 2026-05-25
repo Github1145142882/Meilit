@@ -38,7 +38,9 @@ public final class HaloRingView extends View {
     }
 
     void setLed(int led, int level, int color) {
-        if (led < 1 || led > Aw20072Controller.LED_COUNT) return;
+        if (led < 1 || led > Aw20072Controller.LED_COUNT) {
+            return;
+        }
         int index = led - 1;
         brightness[index] = Math.max(0, Math.min(level, 63));
         colors[index] = color & 0x00FFFFFF;
@@ -49,6 +51,14 @@ public final class HaloRingView extends View {
         for (int i = 0; i < Aw20072Controller.LED_COUNT; i++) {
             colors[i] = color & 0x00FFFFFF;
             brightness[i] = Math.max(0, Math.min(level, 63));
+        }
+        invalidate();
+    }
+
+    void setSnapshot(int[] nextColors, int[] nextBrightness) {
+        for (int i = 0; i < Aw20072Controller.LED_COUNT; i++) {
+            colors[i] = nextColors[i] & 0x00FFFFFF;
+            brightness[i] = Math.max(0, Math.min(nextBrightness[i], 63));
         }
         invalidate();
     }
@@ -70,6 +80,8 @@ public final class HaloRingView extends View {
         float ledRadius = Math.max(dp(8), size * 0.045f);
 
         strokePaint.setStyle(Paint.Style.STROKE);
+        strokePaint.setStrokeWidth(dp(1));
+
         for (int i = 0; i < Aw20072Controller.LED_COUNT; i++) {
             double radians = Math.toRadians(-90 + i * (360f / Aw20072Controller.LED_COUNT));
             float x = center + (float) Math.cos(radians) * ringRadius;
@@ -87,13 +99,15 @@ public final class HaloRingView extends View {
 
     private int resolveLedColor(int index) {
         int level = brightness[index];
-        if (level <= 0) return 0xFF202A33;
+        if (level <= 0) {
+            return 0xFF202A33;
+        }
         float scale = Math.max(0.12f, level / 63f);
         int color = colors[index];
-        return Color.rgb(
-                Math.round(Color.red(color) * scale),
-                Math.round(Color.green(color) * scale),
-                Math.round(Color.blue(color) * scale));
+        int red = Math.round(Color.red(color) * scale);
+        int green = Math.round(Color.green(color) * scale);
+        int blue = Math.round(Color.blue(color) * scale);
+        return Color.rgb(red, green, blue);
     }
 
     private void init() {
