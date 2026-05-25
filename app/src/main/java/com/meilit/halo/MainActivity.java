@@ -7,11 +7,13 @@ import android.graphics.drawable.GradientDrawable;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.text.InputType;
 import android.view.Gravity;
 import android.view.View;
 import android.widget.ArrayAdapter;
 import android.widget.Button;
 import android.widget.CompoundButton;
+import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.SeekBar;
@@ -25,28 +27,18 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 public final class MainActivity extends Activity {
-    private static final int BACKGROUND = 0xFF101418;
-    private static final int PANEL = 0xFF18212A;
-    private static final int TEXT = 0xFFE8EEF2;
-    private static final int MUTED = 0xFFAAB7C4;
-    private static final int ACCENT = 0xFF00B8D4;
-    private static final int DANGER = 0xFFFF5252;
-
-    private final Handler mainHandler = new Handler(Looper.getMainLooper());
-    private final ExecutorService ioExecutor = Executors.newSingleThreadExecutor();
-    private final Aw20072Controller controller = new Aw20072Controller();
-    private final AtomicBoolean animationRunning = new AtomicBoolean(false);
-
-    private TextView statusView;
-    private TextView ledLabel;
-    private TextView brightnessLabel;
-    private TextView colorLabel;
-    private HaloRingView ringView;
-
-    private int selectedLed = 1;
-    private int brightness = 32;
-    private int selectedColor = 0x00FF0000;
-    private Thread animationThread;
+    private static final int BG = 0xFF101418;
+    private static final int SURFACE = 0xFF172028;
+    private static final int SURFACE_HIGH = 0xFF202B35;
+    private static final int OUTLINE = 0xFF394854;
+    private static final int TEXT = 0xFFE7F0F4;
+    private static final int MUTED = 0xFFA7B6C1;
+    private static final int PRIMARY = 0xFF7DD3FC;
+    private static final int PRIMARY_CONTAINER = 0xFF103747;
+    private static final int SECONDARY = 0xFFF0B7D4;
+    private static final int TERTIARY = 0xFFC7DCA7;
+    private static final int DANGER = 0xFFFFB4AB;
+    private static final int DANGER_CONTAINER = 0xFF5F1D19;
 
     private static final String[] EFFECTS = {
             "0 关灯", "1 白色常亮", "2 红色常亮", "3 绿色常亮", "4 蓝色常亮",
@@ -55,11 +47,38 @@ public final class MainActivity extends Activity {
             "14 青色呼吸", "15 紫色呼吸", "16 test.bin"
     };
 
+    private static final int[] PRESET_COLORS = {
+            0x00FFFFFF, 0x00FF1744, 0x0000E676, 0x002964FF, 0x0000E5FF,
+            0x00FFEA00, 0x00FF9100, 0x00FF4FD8, 0x00B388FF, 0x00A7FF83
+    };
+
+    private final Handler mainHandler = new Handler(Looper.getMainLooper());
+    private final ExecutorService ioExecutor = Executors.newSingleThreadExecutor();
+    private final Aw20072Controller controller = new Aw20072Controller();
+
+    private HaloRingView ringView;
+    private TextView statusView;
+    private TextView selectedLedView;
+    private TextView brightnessView;
+    private TextView colorView;
+    private TextView imaxView;
+    private Button[] ledButtons;
+    private EditText regAddressInput;
+    private EditText regValueInput;
+
+    private int selectedLed = 1;
+    private int brightness = 32;
+    private int imax = 8;
+    private int selectedColor = 0x00FF1744;
+    private boolean i2cLogEnabled;
+    private Thread animationThread;
+    private AtomicBoolean animationRunning = new AtomicBoolean(false);
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        getWindow().setStatusBarColor(BACKGROUND);
-        getWindow().setNavigationBarColor(BACKGROUND);
+        getWindow().setStatusBarColor(BG);
+        getWindow().setNavigationBarColor(BG);
         setContentView(buildContent());
         refreshStatus();
     }
@@ -73,266 +92,361 @@ public final class MainActivity extends Activity {
 
     private View buildContent() {
         ScrollView scroll = new ScrollView(this);
-        scroll.setBackgroundColor(BACKGROUND);
+        scroll.setFillViewport(false);
+        scroll.setBackgroundColor(BG);
+
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setPadding(dp(18), dp(18), dp(18), dp(28));
-        scroll.addView(root);
+        root.setPadding(dp(16), dp(16), dp(16), dp(28));
+        scroll.addView(root, new ScrollView.LayoutParams(ScrollView.LayoutParams.MATCH_PARENT, ScrollView.LayoutParams.WRAP_CONTENT));
 
-        root.addView(text("灵动光环 AW20072", 24, TEXT, Typeface.BOLD));
-        statusView = text("", 13, MUTED, Typeface.NORMAL);
-        statusView.setPadding(0, dp(6), 0, dp(12));
-        root.addView(statusView);
-
-        ringView = new HaloRingView(this);
-        root.addView(ringView, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(240)));
-
-        root.addView(deviceSection());
-        root.addView(colorSection());
-        root.addView(singleLedSection());
-        root.addView(allLedSection());
-        root.addView(effectSection());
-        root.addView(playSection());
-        root.addView(advancedSection());
+        root.addView(header());
+        root.addView(buildPreviewSection());
+        root.addView(buildQuickActionsSection());
+        root.addView(buildColorSection());
+        root.addView(buildLedSection());
+        root.addView(buildEffectSection());
+        root.addView(buildPlaySection());
+        root.addView(buildAdvancedSection());
         return scroll;
     }
 
-    private View deviceSection() {
-        LinearLayout s = section("设备");
-        LinearLayout row = row();
-        Button refresh = button("刷新", ACCENT);
+    private View header() {
+        LinearLayout header = new LinearLayout(this);
+        header.setOrientation(LinearLayout.VERTICAL);
+        header.setPadding(dp(2), 0, dp(2), dp(12));
+
+        TextView title = text("灵动光环", 30, TEXT, Typeface.BOLD);
+        header.addView(title);
+
+        TextView subtitle = text("AW20072 · 16 组 RGB 灯珠控制台", 14, MUTED, Typeface.NORMAL);
+        subtitle.setPadding(0, dp(2), 0, dp(10));
+        header.addView(subtitle);
+
+        statusView = text("", 13, TEXT, Typeface.BOLD);
+        statusView.setPadding(dp(12), dp(9), dp(12), dp(9));
+        statusView.setBackground(roundRect(PRIMARY_CONTAINER, dp(18), 0));
+        header.addView(statusView, matchParams());
+        return header;
+    }
+
+    private View buildPreviewSection() {
+        LinearLayout section = section("预览");
+        ringView = new HaloRingView(this);
+        section.addView(ringView, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(250)));
+        return section;
+    }
+
+    private View buildQuickActionsSection() {
+        LinearLayout section = section("快捷控制");
+        LinearLayout firstRow = row();
+        Button refresh = button("刷新", PRIMARY_CONTAINER, PRIMARY);
         refresh.setOnClickListener(v -> refreshStatus());
-        Button off = button("关灯", DANGER);
-        off.setOnClickListener(v -> runCommand("关灯", () -> controller.setEffect(0), () -> ringView.clear()));
-        row.addView(refresh, weight());
-        row.addView(off, weight());
-        s.addView(row);
+        Button off = button("关灯", DANGER_CONTAINER, DANGER);
+        off.setOnClickListener(v -> runController("effect=0", () -> controller.setEffect(0), () -> ringView.clear()));
+        firstRow.addView(refresh, weightParams());
+        firstRow.addView(off, weightParams());
+        section.addView(firstRow);
+
+        LinearLayout secondRow = row();
+        Button all = button("全部点亮", 0xFF243816, TERTIARY);
+        all.setOnClickListener(v -> runController("all_light", () -> controller.setAllLight(brightness, selectedColor), () -> ringView.setAll(brightness, selectedColor)));
+        Button clear = button("清空叠加", SURFACE_HIGH, TEXT);
+        clear.setOnClickListener(v -> runController("alone_light off", () -> controller.setAloneLight(0, 0, 0), () -> ringView.clear()));
+        secondRow.addView(all, weightParams());
+        secondRow.addView(clear, weightParams());
+        section.addView(secondRow);
 
         Switch rootSwitch = new Switch(this);
-        rootSwitch.setText("使用 su 写入");
+        rootSwitch.setText("优先使用 su 写入");
         rootSwitch.setTextColor(TEXT);
-        rootSwitch.setOnCheckedChangeListener((CompoundButton b, boolean checked) -> {
-            controller.setForceRoot(checked);
+        rootSwitch.setTextSize(14);
+        rootSwitch.setPadding(dp(4), dp(8), 0, 0);
+        rootSwitch.setOnCheckedChangeListener((CompoundButton buttonView, boolean isChecked) -> {
+            controller.setForceRoot(isChecked);
             refreshStatus();
         });
-        s.addView(rootSwitch);
-        return s;
+        section.addView(rootSwitch);
+        return section;
     }
 
-    private View colorSection() {
-        LinearLayout s = section("颜色");
-        colorLabel = text("", 14, Color.WHITE, Typeface.BOLD);
-        colorLabel.setGravity(Gravity.CENTER);
-        colorLabel.setPadding(0, dp(10), 0, dp(10));
-        s.addView(colorLabel, match());
-        s.addView(colorSeek("R", 255));
-        s.addView(colorSeek("G", 0));
-        s.addView(colorSeek("B", 0));
-        updateColorLabel();
-        return s;
-    }
+    private View buildColorSection() {
+        LinearLayout section = section("颜色与亮度");
+        colorView = text("", 18, TEXT, Typeface.BOLD);
+        colorView.setGravity(Gravity.CENTER);
+        colorView.setPadding(0, dp(14), 0, dp(14));
+        section.addView(colorView, matchParams());
 
-    private View singleLedSection() {
-        LinearLayout s = section("单颗灯珠");
-        ledLabel = text("", 15, TEXT, Typeface.BOLD);
-        s.addView(ledLabel);
-        for (int r = 0; r < 4; r++) {
-            LinearLayout row = row();
-            for (int c = 0; c < 4; c++) {
-                int led = r * 4 + c + 1;
-                Button b = button(String.valueOf(led), 0xFF263340);
-                b.setOnClickListener(v -> selectLed(led));
-                row.addView(b, weight());
-            }
-            s.addView(row);
+        LinearLayout swatches = new LinearLayout(this);
+        swatches.setOrientation(LinearLayout.HORIZONTAL);
+        swatches.setPadding(0, dp(8), 0, dp(10));
+        for (int color : PRESET_COLORS) {
+            Button swatch = new Button(this);
+            swatch.setText("");
+            swatch.setMinHeight(dp(40));
+            swatch.setBackground(roundRect(color | 0xFF000000, dp(20), 0x55FFFFFF));
+            swatch.setOnClickListener(v -> {
+                selectedColor = color;
+                updateColorPreview();
+            });
+            swatches.addView(swatch, weightParams());
         }
-        brightnessLabel = text("", 13, MUTED, Typeface.NORMAL);
-        s.addView(brightnessLabel);
-        SeekBar seek = new SeekBar(this);
-        seek.setMax(62);
-        seek.setProgress(brightness - 1);
-        seek.setOnSeekBarChangeListener(seek(progress -> {
+        section.addView(swatches);
+
+        section.addView(colorSeek("R", Color.red(selectedColor)));
+        section.addView(colorSeek("G", Color.green(selectedColor)));
+        section.addView(colorSeek("B", Color.blue(selectedColor)));
+
+        brightnessView = text("", 14, MUTED, Typeface.BOLD);
+        brightnessView.setPadding(0, dp(8), 0, 0);
+        section.addView(brightnessView);
+        SeekBar brightnessSeek = new SeekBar(this);
+        brightnessSeek.setMax(62);
+        brightnessSeek.setProgress(brightness - 1);
+        brightnessSeek.setOnSeekBarChangeListener(simpleSeek(progress -> {
             brightness = progress + 1;
             updateBrightnessLabel();
         }));
-        s.addView(seek);
+        section.addView(brightnessSeek);
 
-        LinearLayout row = row();
-        Button light = button("独占点亮", ACCENT);
-        light.setOnClickListener(v -> runCommand("light", () -> controller.setLight(selectedLed, brightness, selectedColor), () -> {
+        updateColorPreview();
+        updateBrightnessLabel();
+        return section;
+    }
+
+    private View buildLedSection() {
+        LinearLayout section = section("灯珠");
+        selectedLedView = text("", 16, TEXT, Typeface.BOLD);
+        selectedLedView.setPadding(0, 0, 0, dp(8));
+        section.addView(selectedLedView);
+
+        ledButtons = new Button[Aw20072Controller.LED_COUNT];
+        for (int rowIndex = 0; rowIndex < 4; rowIndex++) {
+            LinearLayout gridRow = row();
+            for (int column = 0; column < 4; column++) {
+                int led = rowIndex * 4 + column + 1;
+                Button button = button(String.valueOf(led), SURFACE_HIGH, TEXT);
+                button.setMinHeight(dp(46));
+                button.setOnClickListener(v -> selectLed(led));
+                ledButtons[led - 1] = button;
+                gridRow.addView(button, weightParams());
+            }
+            section.addView(gridRow);
+        }
+
+        LinearLayout actions = row();
+        Button light = button("独占点亮", PRIMARY_CONTAINER, PRIMARY);
+        light.setOnClickListener(v -> runController("light", () -> controller.setLight(selectedLed, brightness, selectedColor), () -> {
             ringView.clear();
             ringView.setLed(selectedLed, brightness, selectedColor);
         }));
-        Button alone = button("叠加点亮", ACCENT);
-        alone.setOnClickListener(v -> runCommand("alone_light", () -> controller.setAloneLight(selectedLed, brightness, selectedColor), () -> ringView.setLed(selectedLed, brightness, selectedColor)));
-        row.addView(light, weight());
-        row.addView(alone, weight());
-        s.addView(row);
+        Button alone = button("叠加点亮", 0xFF3A2742, SECONDARY);
+        alone.setOnClickListener(v -> runController("alone_light", () -> controller.setAloneLight(selectedLed, brightness, selectedColor), () -> ringView.setLed(selectedLed, brightness, selectedColor)));
+        actions.addView(light, weightParams());
+        actions.addView(alone, weightParams());
+        section.addView(actions);
+
+        Button clearSelected = button("熄灭当前灯珠", SURFACE_HIGH, TEXT);
+        clearSelected.setOnClickListener(v -> runController("alone_light brightness 0", () -> controller.setAloneLight(selectedLed, 0, selectedColor), () -> ringView.setLed(selectedLed, 0, selectedColor)));
+        section.addView(clearSelected, matchParams());
+
         selectLed(1);
-        updateBrightnessLabel();
-        return s;
+        return section;
     }
 
-    private View allLedSection() {
-        LinearLayout s = section("全部灯珠");
-        LinearLayout row = row();
-        Button all = button("全部点亮", ACCENT);
-        all.setOnClickListener(v -> runCommand("all_light", () -> controller.setAllLight(brightness, selectedColor), () -> ringView.setAll(brightness, selectedColor)));
-        Button clear = button("清空叠加", 0xFF455A64);
-        clear.setOnClickListener(v -> runCommand("alone_light off", () -> controller.setAloneLight(0, 0, 0), () -> ringView.clear()));
-        row.addView(all, weight());
-        row.addView(clear, weight());
-        s.addView(row);
-        return s;
-    }
-
-    private View effectSection() {
-        LinearLayout s = section("固件效果");
+    private View buildEffectSection() {
+        LinearLayout section = section("固件效果");
         Spinner spinner = new Spinner(this);
         ArrayAdapter<String> adapter = new ArrayAdapter<>(this, android.R.layout.simple_spinner_item, EFFECTS);
         adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
         spinner.setAdapter(adapter);
-        s.addView(spinner, match());
-        Button apply = button("播放效果", ACCENT);
-        apply.setOnClickListener(v -> runCommand("effect", () -> controller.setEffect(spinner.getSelectedItemPosition()), null));
-        s.addView(apply, match());
-        return s;
+        section.addView(spinner, matchParams());
+
+        Button apply = button("播放固件效果", PRIMARY_CONTAINER, PRIMARY);
+        apply.setOnClickListener(v -> runController("effect", () -> controller.setEffect(spinner.getSelectedItemPosition()), null));
+        section.addView(apply, matchParams());
+        return section;
     }
 
-    private View playSection() {
-        LinearLayout s = section("玩法");
-        LinearLayout row = row();
-        Button chase = button("流光", ACCENT);
+    private View buildPlaySection() {
+        LinearLayout section = section("玩法");
+        LinearLayout firstRow = row();
+        Button chase = button("流光", PRIMARY_CONTAINER, PRIMARY);
         chase.setOnClickListener(v -> startChase());
-        Button breath = button("呼吸", ACCENT);
+        Button rainbow = button("彩虹旋转", 0xFF3A2742, SECONDARY);
+        rainbow.setOnClickListener(v -> startRainbow());
+        firstRow.addView(chase, weightParams());
+        firstRow.addView(rainbow, weightParams());
+        section.addView(firstRow);
+
+        LinearLayout secondRow = row();
+        Button breath = button("呼吸", 0xFF243816, TERTIARY);
         breath.setOnClickListener(v -> startBreath());
-        Button stop = button("停止", DANGER);
-        stop.setOnClickListener(v -> stopAnimation());
-        row.addView(chase, weight());
-        row.addView(breath, weight());
-        row.addView(stop, weight());
-        s.addView(row);
-        return s;
+        Button stop = button("停止玩法", DANGER_CONTAINER, DANGER);
+        stop.setOnClickListener(v -> {
+            stopAnimation();
+            setStatus("玩法已停止");
+        });
+        secondRow.addView(breath, weightParams());
+        secondRow.addView(stop, weightParams());
+        section.addView(secondRow);
+        return section;
     }
 
-    private View advancedSection() {
-        LinearLayout s = section("高级");
-        LinearLayout row = row();
-        Button imax = button("IMAX 0x8", ACCENT);
-        imax.setOnClickListener(v -> runCommand("imax", () -> controller.setImax(8), null));
-        Button reset = button("硬复位", DANGER);
-        reset.setOnClickListener(v -> runCommand("hwen", () -> controller.setHwen(1), () -> ringView.clear()));
-        row.addView(imax, weight());
-        row.addView(reset, weight());
-        s.addView(row);
-        return s;
+    private View buildAdvancedSection() {
+        LinearLayout section = section("高级节点");
+        imaxView = text("", 14, MUTED, Typeface.BOLD);
+        imaxView.setPadding(0, 0, 0, dp(4));
+        section.addView(imaxView);
+        SeekBar imaxSeek = new SeekBar(this);
+        imaxSeek.setMax(15);
+        imaxSeek.setProgress(imax);
+        imaxSeek.setOnSeekBarChangeListener(simpleSeek(progress -> {
+            imax = progress;
+            updateImaxLabel();
+        }));
+        section.addView(imaxSeek);
+
+        LinearLayout nodeRowOne = row();
+        Button imaxButton = button("写 IMAX", PRIMARY_CONTAINER, PRIMARY);
+        imaxButton.setOnClickListener(v -> runController("imax", () -> controller.setImax(imax), null));
+        Button reset = button("硬复位", DANGER_CONTAINER, DANGER);
+        reset.setOnClickListener(v -> runController("hwen", () -> controller.setHwen(1), () -> ringView.clear()));
+        nodeRowOne.addView(imaxButton, weightParams());
+        nodeRowOne.addView(reset, weightParams());
+        section.addView(nodeRowOne);
+
+        LinearLayout colorNodeRow = row();
+        Button rgbColor = button("单灯6bit色", SURFACE_HIGH, TEXT);
+        rgbColor.setOnClickListener(v -> runController("rgbcolor", () -> controller.setRgbColor(selectedLed, selectedColor), null));
+        Button allRgbColor = button("全灯6bit色", SURFACE_HIGH, TEXT);
+        allRgbColor.setOnClickListener(v -> runController("allrgbcolor", () -> controller.setAllRgbColor(selectedColor), null));
+        colorNodeRow.addView(rgbColor, weightParams());
+        colorNodeRow.addView(allRgbColor, weightParams());
+        section.addView(colorNodeRow);
+
+        LinearLayout brightNodeRow = row();
+        Button rgbBrightness = button("单灯8bit亮度", SURFACE_HIGH, TEXT);
+        rgbBrightness.setOnClickListener(v -> runController("rgbbrightness", () -> controller.setRgbBrightness(selectedLed, selectedColor), null));
+        Button allRgbBrightness = button("全灯8bit亮度", SURFACE_HIGH, TEXT);
+        allRgbBrightness.setOnClickListener(v -> runController("allrgbbrightness", () -> controller.setAllRgbBrightness(selectedColor), null));
+        brightNodeRow.addView(rgbBrightness, weightParams());
+        brightNodeRow.addView(allRgbBrightness, weightParams());
+        section.addView(brightNodeRow);
+
+        LinearLayout logRow = row();
+        Button i2cLog = button("I2C Log: OFF", SURFACE_HIGH, TEXT);
+        i2cLog.setOnClickListener(v -> {
+            i2cLogEnabled = !i2cLogEnabled;
+            i2cLog.setText(i2cLogEnabled ? "I2C Log: ON" : "I2C Log: OFF");
+            runController("i2c_log", () -> controller.setI2cLog(i2cLogEnabled ? 1 : 0), null);
+        });
+        Button hwenLow = button("拉低复位", SURFACE_HIGH, TEXT);
+        hwenLow.setOnClickListener(v -> runController("hwen low", () -> controller.setHwen(0), () -> ringView.clear()));
+        logRow.addView(i2cLog, weightParams());
+        logRow.addView(hwenLow, weightParams());
+        section.addView(logRow);
+
+        TextView regLabel = text("寄存器写入（十六进制）", 14, MUTED, Typeface.BOLD);
+        regLabel.setPadding(0, dp(10), 0, dp(4));
+        section.addView(regLabel);
+        LinearLayout regRow = row();
+        regAddressInput = edit("addr", "03");
+        regValueInput = edit("value", "80");
+        Button regWrite = button("写 REG", PRIMARY_CONTAINER, PRIMARY);
+        regWrite.setOnClickListener(v -> writeReg());
+        regRow.addView(regAddressInput, weightParams());
+        regRow.addView(regValueInput, weightParams());
+        regRow.addView(regWrite, weightParams());
+        section.addView(regRow);
+
+        updateImaxLabel();
+        return section;
     }
 
-    private View colorSeek(String tag, int initial) {
-        LinearLayout row = row();
-        TextView label = text(tag, 13, MUTED, Typeface.BOLD);
-        label.setGravity(Gravity.CENTER);
-        row.addView(label, new LinearLayout.LayoutParams(dp(28), LinearLayout.LayoutParams.WRAP_CONTENT));
-        SeekBar seek = new SeekBar(this);
-        seek.setTag(tag);
-        seek.setMax(255);
-        seek.setProgress(initial);
-        seek.setOnSeekBarChangeListener(seek(progress -> updateColorFromSliders((LinearLayout) row.getParent())));
-        row.addView(seek, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
-        return row;
+    private View colorSeek(String label, int initialProgress) {
+        LinearLayout wrapper = new LinearLayout(this);
+        wrapper.setOrientation(LinearLayout.HORIZONTAL);
+        wrapper.setGravity(Gravity.CENTER_VERTICAL);
+        wrapper.setPadding(0, dp(4), 0, dp(4));
+        TextView text = text(label, 13, MUTED, Typeface.BOLD);
+        text.setGravity(Gravity.CENTER);
+        wrapper.addView(text, new LinearLayout.LayoutParams(dp(28), LinearLayout.LayoutParams.WRAP_CONTENT));
+        SeekBar seekBar = new SeekBar(this);
+        seekBar.setMax(255);
+        seekBar.setProgress(initialProgress);
+        seekBar.setTag(label);
+        seekBar.setOnSeekBarChangeListener(simpleSeek(progress -> updateColorFromSliders(wrapper)));
+        wrapper.addView(seekBar, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+        return wrapper;
     }
 
-    private void updateColorFromSliders(LinearLayout section) {
-        int red = slider(section, "R");
-        int green = slider(section, "G");
-        int blue = slider(section, "B");
-        selectedColor = Color.rgb(red, green, blue) & 0x00FFFFFF;
-        updateColorLabel();
+    private void updateColorFromSliders(View source) {
+        LinearLayout section = (LinearLayout) source.getParent();
+        selectedColor = Color.rgb(findColorProgress(section, "R"), findColorProgress(section, "G"), findColorProgress(section, "B")) & 0x00FFFFFF;
+        updateColorPreview();
     }
 
-    private int slider(LinearLayout section, String tag) {
-        if (section == null) return 0;
+    private int findColorProgress(LinearLayout section, String tag) {
         for (int i = 0; i < section.getChildCount(); i++) {
-            View child = section.getChildAt(i);
-            if (!(child instanceof LinearLayout)) continue;
-            LinearLayout row = (LinearLayout) child;
-            for (int j = 0; j < row.getChildCount(); j++) {
-                View item = row.getChildAt(j);
-                if (item instanceof SeekBar && tag.equals(item.getTag())) return ((SeekBar) item).getProgress();
+            View row = section.getChildAt(i);
+            if (!(row instanceof LinearLayout)) continue;
+            LinearLayout linearRow = (LinearLayout) row;
+            for (int j = 0; j < linearRow.getChildCount(); j++) {
+                View child = linearRow.getChildAt(j);
+                if (child instanceof SeekBar && tag.equals(child.getTag())) return ((SeekBar) child).getProgress();
             }
         }
         return 0;
     }
 
-    private void startChase() {
-        startAnimation(() -> {
-            while (animationRunning.get()) {
-                for (int led = 1; led <= Aw20072Controller.LED_COUNT && animationRunning.get(); led++) {
-                    int current = led;
-                    Aw20072Controller.CommandResult result = controller.setLight(current, brightness, selectedColor);
-                    if (!result.ok) {
-                        postStatus("玩法失败: " + result.message);
-                        animationRunning.set(false);
-                        return;
-                    }
-                    mainHandler.post(() -> {
-                        ringView.clear();
-                        ringView.setLed(current, brightness, selectedColor);
-                    });
-                    sleep(90);
-                }
-            }
-        });
+    private void selectLed(int led) {
+        selectedLed = led;
+        ringView.setSelectedLed(led);
+        selectedLedView.setText(String.format(Locale.US, "当前灯珠: %d / 16", led));
+        updateLedButtons();
     }
 
-    private void startBreath() {
-        startAnimation(() -> {
-            int level = 1;
-            int direction = 1;
-            while (animationRunning.get()) {
-                Aw20072Controller.CommandResult result = controller.setAllLight(level, selectedColor);
-                if (!result.ok) {
-                    postStatus("玩法失败: " + result.message);
-                    animationRunning.set(false);
-                    return;
-                }
-                int current = level;
-                mainHandler.post(() -> ringView.setAll(current, selectedColor));
-                level += direction;
-                if (level >= brightness) direction = -1;
-                if (level <= 1) direction = 1;
-                sleep(35);
-            }
-        });
+    private void updateBrightnessLabel() {
+        brightnessView.setText(String.format(Locale.US, "亮度: %d / 63", brightness));
     }
 
-    private void startAnimation(Runnable runnable) {
-        stopAnimation();
-        animationRunning.set(true);
-        animationThread = new Thread(runnable, "aw20072-play");
-        animationThread.start();
-        setStatus("玩法运行中");
+    private void updateImaxLabel() {
+        imaxView.setText(String.format(Locale.US, "IMAX: 0x%X / 0xF", imax));
     }
 
-    private void stopAnimation() {
-        animationRunning.set(false);
-        if (animationThread != null) animationThread.interrupt();
-        animationThread = null;
-        if (statusView != null) setStatus("玩法已停止");
+    private void updateColorPreview() {
+        String hex = String.format(Locale.US, "#%06X", selectedColor & 0x00FFFFFF);
+        colorView.setText(hex);
+        colorView.setTextColor(isDark(selectedColor) ? Color.WHITE : Color.BLACK);
+        colorView.setBackground(roundRect(selectedColor | 0xFF000000, dp(24), 0x44FFFFFF));
     }
 
-    private void sleep(long millis) {
-        try {
-            Thread.sleep(millis);
-        } catch (InterruptedException ignored) {
-            animationRunning.set(false);
-            Thread.currentThread().interrupt();
+    private void updateLedButtons() {
+        if (ledButtons == null) return;
+        for (int i = 0; i < ledButtons.length; i++) {
+            boolean selected = (i + 1) == selectedLed;
+            styleButton(ledButtons[i], selected ? PRIMARY_CONTAINER : SURFACE_HIGH, selected ? PRIMARY : TEXT);
         }
     }
 
-    private void runCommand(String label, ControllerCall call, Runnable onSuccess) {
+    private void refreshStatus() {
+        setStatus((controller.isPresent() ? "节点已就绪" : "未检测到节点") + "  ·  " + controller.describeAvailability());
+    }
+
+    private void writeReg() {
+        try {
+            int addr = Integer.parseInt(regAddressInput.getText().toString().trim(), 16);
+            int value = Integer.parseInt(regValueInput.getText().toString().trim(), 16);
+            runController("reg", () -> controller.setReg(addr, value), null);
+        } catch (NumberFormatException error) {
+            setStatus("失败: reg 请输入十六进制 addr/value");
+        }
+    }
+
+    private void runController(String label, ControllerCall call, Runnable onSuccess) {
         stopAnimation();
-        setStatus(label + " ...");
+        setStatus(label + " 写入中...");
         ioExecutor.execute(() -> {
             Aw20072Controller.CommandResult result = call.run();
             mainHandler.post(() -> {
@@ -342,36 +456,110 @@ public final class MainActivity extends Activity {
         });
     }
 
-    private void selectLed(int led) {
-        selectedLed = led;
-        if (ringView != null) ringView.setSelectedLed(led);
-        if (ledLabel != null) ledLabel.setText(String.format(Locale.US, "当前灯珠: %d / 16", led));
+    private void startChase() {
+        startAnimation("流光", running -> {
+            while (running.get()) {
+                for (int led = 1; led <= Aw20072Controller.LED_COUNT && running.get(); led++) {
+                    Aw20072Controller.CommandResult result = controller.setLight(led, brightness, selectedColor);
+                    if (!handleAnimationResult(result, running)) return;
+                    int currentLed = led;
+                    mainHandler.post(() -> {
+                        ringView.clear();
+                        ringView.setLed(currentLed, brightness, selectedColor);
+                    });
+                    sleep(80, running);
+                }
+            }
+        });
     }
 
-    private void refreshStatus() {
-        setStatus((controller.isPresent() ? "已检测到节点" : "未检测到节点") + "   " + controller.describeAvailability());
+    private void startRainbow() {
+        startAnimation("彩虹旋转", running -> {
+            int step = 0;
+            while (running.get()) {
+                Aw20072Controller.CommandResult clear = controller.setAloneLight(0, 0, 0);
+                if (!handleAnimationResult(clear, running)) return;
+                int[] colors = new int[Aw20072Controller.LED_COUNT];
+                int[] levels = new int[Aw20072Controller.LED_COUNT];
+                for (int led = 1; led <= Aw20072Controller.LED_COUNT && running.get(); led++) {
+                    int color = Color.HSVToColor(new float[]{(step * 12 + led * 22.5f) % 360f, 0.95f, 1f}) & 0x00FFFFFF;
+                    Aw20072Controller.CommandResult result = controller.setAloneLight(led, brightness, color);
+                    if (!handleAnimationResult(result, running)) return;
+                    colors[led - 1] = color;
+                    levels[led - 1] = brightness;
+                }
+                mainHandler.post(() -> ringView.setSnapshot(colors, levels));
+                step++;
+                sleep(140, running);
+            }
+        });
     }
 
-    private void updateBrightnessLabel() {
-        brightnessLabel.setText(String.format(Locale.US, "亮度: %d / 63", brightness));
+    private void startBreath() {
+        startAnimation("呼吸", running -> {
+            int level = 1;
+            int direction = 1;
+            while (running.get()) {
+                Aw20072Controller.CommandResult result = controller.setAllLight(level, selectedColor);
+                if (!handleAnimationResult(result, running)) return;
+                int currentLevel = level;
+                mainHandler.post(() -> ringView.setAll(currentLevel, selectedColor));
+                level += direction;
+                if (level >= brightness) {
+                    level = brightness;
+                    direction = -1;
+                } else if (level <= 1) {
+                    level = 1;
+                    direction = 1;
+                }
+                sleep(35, running);
+            }
+        });
     }
 
-    private void updateColorLabel() {
-        String hex = String.format(Locale.US, "#%06X", selectedColor & 0x00FFFFFF);
-        colorLabel.setText(hex);
-        colorLabel.setTextColor(isDark(selectedColor) ? Color.WHITE : Color.BLACK);
-        colorLabel.setBackgroundColor(selectedColor | 0xFF000000);
+    private void startAnimation(String label, AnimationLoop loop) {
+        stopAnimation();
+        AtomicBoolean running = new AtomicBoolean(true);
+        animationRunning = running;
+        animationThread = new Thread(() -> loop.run(running), "aw20072-" + label);
+        animationThread.start();
+        setStatus(label + " 运行中");
+    }
+
+    private void stopAnimation() {
+        animationRunning.set(false);
+        if (animationThread != null) {
+            animationThread.interrupt();
+            animationThread = null;
+        }
+    }
+
+    private boolean handleAnimationResult(Aw20072Controller.CommandResult result, AtomicBoolean running) {
+        if (result.ok) return true;
+        running.set(false);
+        mainHandler.post(() -> setStatus("玩法失败: " + result.message));
+        return false;
+    }
+
+    private void sleep(long millis, AtomicBoolean running) {
+        if (!running.get()) return;
+        try {
+            Thread.sleep(millis);
+        } catch (InterruptedException ignored) {
+            running.set(false);
+            Thread.currentThread().interrupt();
+        }
     }
 
     private LinearLayout section(String title) {
         LinearLayout section = new LinearLayout(this);
         section.setOrientation(LinearLayout.VERTICAL);
         section.setPadding(dp(14), dp(12), dp(14), dp(14));
-        section.setBackground(panelBackground());
-        TextView titleView = text(title, 16, TEXT, Typeface.BOLD);
-        titleView.setPadding(0, 0, 0, dp(8));
+        section.setBackground(roundRect(SURFACE, dp(22), OUTLINE));
+        TextView titleView = text(title, 17, TEXT, Typeface.BOLD);
+        titleView.setPadding(0, 0, 0, dp(10));
         section.addView(titleView);
-        LinearLayout.LayoutParams params = match();
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
         params.setMargins(0, dp(12), 0, 0);
         section.setLayoutParams(params);
         return section;
@@ -385,56 +573,72 @@ public final class MainActivity extends Activity {
         return row;
     }
 
-    private Button button(String label, int color) {
+    private Button button(String label, int bg, int fg) {
         Button button = new Button(this);
         button.setText(label);
         button.setTextSize(14);
         button.setAllCaps(false);
-        button.setTextColor(Color.WHITE);
-        GradientDrawable drawable = new GradientDrawable();
-        drawable.setColor(color);
-        drawable.setCornerRadius(dp(6));
-        button.setBackground(drawable);
+        button.setTextColor(fg);
+        button.setMinHeight(dp(48));
+        button.setGravity(Gravity.CENTER);
+        styleButton(button, bg, fg);
         return button;
     }
 
-    private TextView text(String value, int sp, int color, int style) {
-        TextView text = new TextView(this);
-        text.setText(value);
-        text.setTextSize(sp);
-        text.setTextColor(color);
-        text.setTypeface(Typeface.DEFAULT, style);
-        return text;
+    private void styleButton(Button button, int bg, int fg) {
+        button.setTextColor(fg);
+        button.setBackground(roundRect(bg, dp(20), 0));
     }
 
-    private GradientDrawable panelBackground() {
+    private EditText edit(String hint, String value) {
+        EditText editText = new EditText(this);
+        editText.setHint(hint);
+        editText.setText(value);
+        editText.setTextColor(TEXT);
+        editText.setHintTextColor(MUTED);
+        editText.setSingleLine(true);
+        editText.setInputType(InputType.TYPE_CLASS_TEXT);
+        editText.setPadding(dp(12), 0, dp(12), 0);
+        editText.setMinHeight(dp(48));
+        editText.setBackground(roundRect(SURFACE_HIGH, dp(16), OUTLINE));
+        return editText;
+    }
+
+    private GradientDrawable roundRect(int color, int radius, int strokeColor) {
         GradientDrawable drawable = new GradientDrawable();
-        drawable.setColor(PANEL);
-        drawable.setCornerRadius(dp(8));
-        drawable.setStroke(dp(1), 0xFF2E3C48);
+        drawable.setColor(color);
+        drawable.setCornerRadius(radius);
+        if (strokeColor != 0) drawable.setStroke(dp(1), strokeColor);
         return drawable;
     }
 
-    private LinearLayout.LayoutParams weight() {
+    private TextView text(String value, int sp, int color, int style) {
+        TextView textView = new TextView(this);
+        textView.setText(value);
+        textView.setTextSize(sp);
+        textView.setTextColor(color);
+        textView.setTypeface(Typeface.DEFAULT, style);
+        return textView;
+    }
+
+    private LinearLayout.LayoutParams weightParams() {
         LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
-        params.setMargins(dp(3), dp(3), dp(3), dp(3));
+        params.setMargins(dp(4), dp(4), dp(4), dp(4));
         return params;
     }
 
-    private LinearLayout.LayoutParams match() {
-        return new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+    private LinearLayout.LayoutParams matchParams() {
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        params.setMargins(0, dp(4), 0, dp(4));
+        return params;
     }
 
-    private SeekBar.OnSeekBarChangeListener seek(ProgressChanged changed) {
+    private SeekBar.OnSeekBarChangeListener simpleSeek(ProgressChanged changed) {
         return new SeekBar.OnSeekBarChangeListener() {
             @Override public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) { changed.onProgressChanged(progress); }
             @Override public void onStartTrackingTouch(SeekBar seekBar) { }
             @Override public void onStopTrackingTouch(SeekBar seekBar) { }
         };
-    }
-
-    private void postStatus(String status) {
-        mainHandler.post(() -> setStatus(status));
     }
 
     private void setStatus(String status) {
@@ -450,5 +654,6 @@ public final class MainActivity extends Activity {
     }
 
     private interface ControllerCall { Aw20072Controller.CommandResult run(); }
+    private interface AnimationLoop { void run(AtomicBoolean running); }
     private interface ProgressChanged { void onProgressChanged(int progress); }
 }
