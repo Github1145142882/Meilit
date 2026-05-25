@@ -35,11 +35,31 @@ jobs:
         shell: bash
         run: gradle :app:assembleDebug
 
+      - name: Package Magisk module
+        shell: bash
+        run: |
+          set -euo pipefail
+          MODULE_DIR="$RUNNER_TEMP/meilit-halo-magisk"
+          mkdir -p "$MODULE_DIR/system/priv-app/MeilitHalo"
+          mkdir -p "$MODULE_DIR/system/etc/permissions"
+          cp app/build/outputs/apk/debug/app-debug.apk "$MODULE_DIR/system/priv-app/MeilitHalo/MeilitHalo.apk"
+          cp magisk/module.prop "$MODULE_DIR/module.prop"
+          cp magisk/service.sh "$MODULE_DIR/service.sh"
+          cp magisk/privapp-permissions-com.meilit.halo.xml "$MODULE_DIR/system/etc/permissions/privapp-permissions-com.meilit.halo.xml"
+          chmod 0755 "$MODULE_DIR/service.sh"
+          (cd "$MODULE_DIR" && zip -r "$GITHUB_WORKSPACE/meilit-halo-magisk.zip" .)
+
       - name: Upload debug APK
         uses: actions/upload-artifact@v4
         with:
           name: meilit-halo-debug-apk
           path: app/build/outputs/apk/debug/*.apk
+
+      - name: Upload Magisk module
+        uses: actions/upload-artifact@v4
+        with:
+          name: meilit-halo-magisk
+          path: meilit-halo-magisk.zip
 
       - name: Publish first release
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
@@ -48,14 +68,15 @@ jobs:
           tag: v1.0.0
           name: Meilit Halo v1.0.0
           body: |
-            First release of the AW20072 灵动光环 controller.
+            First release of the AW20072 halo controller.
 
             - MD3 Expressive-inspired native Android UI
+            - Foreground background engine for lock-screen and background operation
+            - Notification listener and real music Visualizer rhythm with volume fallback
             - 16 LED ring preview and per-light controls
             - light/all_light/alone_light/effect support
             - reg, imax, hwen, i2c_log, rgbcolor, allrgbcolor, rgbbrightness, allrgbbrightness advanced nodes
-            - Built-in chase, rainbow rotate, and breath play modes
-          artifacts: app/build/outputs/apk/debug/*.apk
-          artifactContentType: application/vnd.android.package-archive
+            - Magisk module ZIP installs the APK as a priv-app and grants required permissions
+          artifacts: app/build/outputs/apk/debug/app-debug.apk,meilit-halo-magisk.zip
           allowUpdates: true
           replacesArtifacts: true
