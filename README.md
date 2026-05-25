@@ -1,88 +1,55 @@
-# 灵动光环 AW20072 控制台
+# Meilit Halo AW20072 Controller
 
-这是一个给魅族 AW20072 灵动光环节点使用的 Android 控制 App。工程不依赖 AndroidX、Kotlin 或 Compose，核心逻辑直接按 sysfs 协议写入：
-
-- `/sys/class/leds/aw20072_led/effect`
-- `/sys/class/leds/aw20072_led/light`
-- `/sys/class/leds/aw20072_led/all_light`
-- `/sys/class/leds/aw20072_led/alone_light`
-- 以及 `hwen`、`imax`、`i2c_log`、`rgbcolor`、`allrgbcolor`、`rgbbrightness`、`allrgbbrightness`
+这是给魅族 AW20072 灵动光环节点使用的原生 Android 控制 App。核心逻辑直接写入 `/sys/class/leds/aw20072_led/*`，并提供普通 APK 与 Magisk priv-app 模块两种交付形式。
 
 ## 功能
 
-- 检测 `/sys/class/leds/aw20072_led` 和 `/dev/aw20072_led`
-- 支持直接写入，也支持 `su -c` root 写入
-- 16 颗灯珠选择、单灯独占点亮、叠加点亮、单灯熄灭
-- 全部点亮、清空叠加、固件效果 0..16
-- IMAX、硬复位、I2C log 开关
-- `reg`、6bit color、8bit brightness 等高级节点入口
-- 内置玩法：流光、彩虹旋转、呼吸
-- 媒体音量律动：监听系统媒体音量变化，将音量映射到光环亮度和颜色
-- 软件玩法减少整环清空写入，降低硬件端闪烁感
-- MD3 Expressive 风格原生界面：更大的触控目标、快捷色板、状态条和分组控制
-- 屏幕上的 16 灯珠预览会同步当前 App 写入状态
+- `effect` 0..16、`light`、`all_light`、`alone_light` 全量保留
+- 高级节点：`reg`、`hwen`、`imax`、`i2c_log`、`rgbcolor`、`allrgbcolor`、`rgbbrightness`、`allrgbbrightness`
+- 前台服务后台常驻，锁屏后继续运行写入、音乐律动和音量监听
+- 通知监听：默认响应微信、QQ、Telegram、Discord、电话、短信、提醒等常见通知
+- 音乐律动：优先使用 Android `Visualizer` 采集真实波形/FFT，失败时回退到媒体音量律动
+- 软件玩法减少整环清空：流光只熄灭上一颗，彩虹覆盖颜色，呼吸只改亮度
+- GitHub Release 同时产出普通 APK 和 Magisk 模块 ZIP
 
 ## 构建
-
-需要本机安装 JDK、Android SDK 和 Gradle 8.9。安装后可以在 Android Studio 中打开本目录，或执行：
 
 ```powershell
 gradle :app:assembleDebug
 ```
 
-生成的 APK 位于：
+生成 APK：
 
 ```text
 app/build/outputs/apk/debug/app-debug.apk
 ```
 
-## GitHub Actions 构建与发布
+## GitHub Actions Release
 
-已添加工作流：
+`.github/workflows/android.yml` 会在 push 到 `main`/`master` 时：
+
+- 构建 debug APK
+- 将 APK 打包进 Magisk 模块
+- 更新 `v1.0.0` Release
+- 上传 `app-debug.apk` 和 `meilit-halo-magisk.zip`
+
+## Magisk 模块
+
+模块模板位于 `magisk/`。Actions 会生成以下结构：
 
 ```text
-.github/workflows/android.yml
+system/priv-app/MeilitHalo/MeilitHalo.apk
+system/etc/permissions/privapp-permissions-com.meilit.halo.xml
+module.prop
+service.sh
 ```
 
-触发方式：
-
-- push 到 `main` 或 `master`
-- pull request
-- 在 GitHub Actions 页面手动执行 `workflow_dispatch`
-
-构建完成后，在 Actions 运行记录的 Artifacts 中下载 `meilit-halo-debug-apk`。
-
-push 到 `main` 时，工作流还会创建或更新 `v1.0.0` Release，并把 debug APK 上传为 Release 附件。
-
-## 权限说明
-
-普通 Android App 通常不能直接写 `/sys/class/leds/...`。这个 App 的写入顺序是：
-
-1. 未打开「使用 su 写入」时，先尝试直接 `FileOutputStream` 写 sysfs。
-2. 直接写失败后自动 fallback 到 `su -c`。
-3. 打开「使用 su 写入」后，总是使用 `su -c`。
-
-如果 root 仍然失败，通常是 SELinux 或设备 ROM 权限策略限制，需要把 App 做成系统/特权应用，或通过 Magisk/service 脚本代理写入。
-
-## 写入映射
-
-- 关灯：`effect = 0`
-- 单颗独占：`light = "{light_number} {brightness} {rrggbb}"`
-- 叠加点亮：`alone_light = "{light_number} {brightness} {rrggbb}"`
-- 清空叠加：`alone_light = "0 0 0"`
-- 全部点亮：`all_light = "{brightness} {rrggbb}"`
-- 固件效果：`effect = 0..16`
-- IMAX：`imax = 0x0..0xF`
-- 寄存器：`reg = "{reg_addr_hex} {reg_val_hex}"`
-- 6bit 色彩：`rgbcolor` / `allrgbcolor`
-- 8bit RGB 亮度：`rgbbrightness` / `allrgbbrightness`
-
-亮度按内核约束裁剪到 `1..63`，`alone_light` 允许 `brightness = 0`。
+`service.sh` 会尝试授予录音、通知、前台服务、WakeLock 权限，加入电池优化白名单，开启通知监听服务，并启动后台前台服务。
 
 ## 开发入口
 
-- sysfs/root 写入封装：[Aw20072Controller.java](app/src/main/java/com/meilit/halo/Aw20072Controller.java)
-- 主界面和玩法循环：[MainActivity.java](app/src/main/java/com/meilit/halo/MainActivity.java)
-- 16 灯珠预览：[HaloRingView.java](app/src/main/java/com/meilit/halo/HaloRingView.java)
-
-要新增玩法，建议在 `MainActivity` 中参考 `startChase()`、`startRainbow()`、`startBreath()`，通过 `controller.setLight()`、`controller.setAloneLight()` 或 `controller.setAllLight()` 组合写入。
+- `app/src/main/java/com/meilit/halo/Aw20072Controller.java`：sysfs/root 写入封装
+- `app/src/main/java/com/meilit/halo/HaloEngine.java`：单线程写入队列、去重、音乐/通知帧写入
+- `app/src/main/java/com/meilit/halo/HaloForegroundService.java`：后台常驻、Visualizer、音量回退、WakeLock
+- `app/src/main/java/com/meilit/halo/HaloNotificationListenerService.java`：通知监听和颜色策略
+- `app/src/main/java/com/meilit/halo/MainActivity.java`：主界面和手动控制
