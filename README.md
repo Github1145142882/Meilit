@@ -15,15 +15,15 @@
 - 16 颗灯珠选择、单灯独占点亮、叠加点亮、单灯熄灭
 - 全部点亮、清空叠加、固件效果 0..16
 - IMAX、硬复位、I2C log 开关
-- 内置玩法：流光、彩虹旋转、呼吸
+- 内置玩法：流光、呼吸
 - 屏幕上的 16 灯珠预览会同步当前 App 写入状态
 
 ## 构建
 
-需要本机安装 JDK 和 Android SDK。安装后可以在 Android Studio 中打开本目录，或执行：
+需要本机安装 JDK、Android SDK 和 Gradle 8.9。安装后可以在 Android Studio 中打开本目录，或执行：
 
 ```powershell
-.\gradlew.bat :app:assembleDebug
+gradle :app:assembleDebug
 ```
 
 生成的 APK 位于：
@@ -76,4 +76,4 @@ app/build/outputs/apk/debug/app-debug.apk
 - 主界面和玩法循环：[MainActivity.java](app/src/main/java/com/meilit/halo/MainActivity.java)
 - 16 灯珠预览：[HaloRingView.java](app/src/main/java/com/meilit/halo/HaloRingView.java)
 
-要新增玩法，建议在 `MainActivity` 中参考 `startChase()`、`startRainbow()`、`startBreath()`，通过 `controller.setLight()`、`controller.setAloneLight()` 或 `controller.setAllLight()` 组合写入。
+要新增玩法，建议在 `MainActivity` 中参考 `startChase()`、`startBreath()`，通过 `controller.setLight()`、`controller.setAloneLight()` 或 `controller.setAllLight()` 组合写入。
