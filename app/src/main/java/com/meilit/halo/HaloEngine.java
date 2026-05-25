@@ -17,8 +17,9 @@ final class HaloEngine {
     private final int[] ledLevels = new int[Aw20072Controller.LED_COUNT];
     private int lastAllBrightness = -1;
     private int lastAllColor = -1;
-    private int restoreBrightness = 12;
+    private int restoreBrightness;
     private int restoreColor = 0x00FFFFFF;
+    private boolean hasRestoreState;
     private long lastMusicFrameAt;
 
     private HaloEngine(Context context) {
@@ -51,6 +52,7 @@ final class HaloEngine {
             lastAllColor = safeColor;
             restoreBrightness = safeBrightness;
             restoreColor = safeColor;
+            hasRestoreState = true;
             Arrays.fill(ledColors, safeColor);
             Arrays.fill(ledLevels, safeBrightness);
         }
@@ -65,6 +67,8 @@ final class HaloEngine {
                 Arrays.fill(ledLevels, 0);
                 lastAllBrightness = -1;
                 lastAllColor = -1;
+                restoreBrightness = 0;
+                hasRestoreState = false;
             }
             return result;
         }
@@ -83,6 +87,7 @@ final class HaloEngine {
             if (safeBrightness > 0) {
                 restoreBrightness = safeBrightness;
                 restoreColor = safeColor;
+                hasRestoreState = true;
             }
         }
         return result;
@@ -90,6 +95,9 @@ final class HaloEngine {
 
     void pulseNotification(int color) {
         queue.execute(() -> {
+            boolean shouldRestore = hasRestoreState;
+            int previousBrightness = restoreBrightness;
+            int previousColor = restoreColor;
             int safeColor = color & 0x00FFFFFF;
             controller.setAllLight(50, safeColor);
             sleep(110);
@@ -97,7 +105,21 @@ final class HaloEngine {
             sleep(80);
             controller.setAllLight(42, safeColor);
             sleep(120);
-            controller.setAllLight(Math.max(1, restoreBrightness), restoreColor);
+            if (shouldRestore) {
+                controller.setAllLight(Math.max(1, previousBrightness), previousColor);
+            } else {
+                controller.setAloneLight(0, 0, 0);
+            }
+        });
+    }
+
+    void restoreOrOff() {
+        queue.execute(() -> {
+            if (hasRestoreState) {
+                controller.setAllLight(Math.max(1, restoreBrightness), restoreColor);
+            } else {
+                controller.setAloneLight(0, 0, 0);
+            }
         });
     }
 
