@@ -24,14 +24,28 @@ final class Aw20072Controller {
         this.forceRoot = forceRoot;
     }
 
+    boolean isForceRoot() {
+        return forceRoot;
+    }
+
     boolean isPresent() {
         return sysfsDir.exists() || devNode.exists();
     }
 
     String describeAvailability() {
-        return "sysfs: " + (sysfsDir.exists() ? "found" : "missing")
-                + "   dev: " + (devNode.exists() ? "found" : "missing")
-                + "   mode: " + (forceRoot ? "su" : "direct first");
+        StringBuilder builder = new StringBuilder();
+        builder.append("sysfs: ").append(sysfsDir.exists() ? "found" : "missing");
+        builder.append("   dev: ").append(devNode.exists() ? "found" : "missing");
+        builder.append("   mode: ").append(forceRoot ? "su" : "direct first");
+        return builder.toString();
+    }
+
+    CommandResult setReg(int regAddr, int regValue) {
+        return writeNode("reg", String.format(Locale.US, "%x %x\n", regAddr, regValue));
+    }
+
+    CommandResult setHwen(int value) {
+        return writeNode("hwen", String.format(Locale.US, "%x\n", value));
     }
 
     CommandResult setEffect(int effect) {
@@ -42,32 +56,11 @@ final class Aw20072Controller {
         return writeNode("imax", String.format(Locale.US, "%x\n", clamp(imax, 0, 0x0F)));
     }
 
-    CommandResult setHwen(int value) {
-        return writeNode("hwen", String.format(Locale.US, "%x\n", value));
-    }
-
-    CommandResult setLight(int led, int brightness, int color) {
-        CommandResult check = validateLed(led);
-        if (!check.ok) return check;
-        if (brightness <= 0) return CommandResult.fail("light brightness must be 1..63");
-        return writeNode("light", String.format(Locale.US, "%d %d %06x\n", led, clamp(brightness, 1, 63), color24(color)));
-    }
-
-    CommandResult setAllLight(int brightness, int color) {
-        if (brightness <= 0) return CommandResult.fail("all_light brightness must be 1..63");
-        return writeNode("all_light", String.format(Locale.US, "%d %06x\n", clamp(brightness, 1, 63), color24(color)));
-    }
-
-    CommandResult setAloneLight(int led, int brightness, int color) {
-        if (led == 0) return writeNode("alone_light", "0 0 0\n");
-        CommandResult check = validateLed(led);
-        if (!check.ok) return check;
-        return writeNode("alone_light", String.format(Locale.US, "%d %d %06x\n", led, clamp(brightness, 0, 63), color24(color)));
-    }
-
     CommandResult setRgbColor(int led, int color) {
-        CommandResult check = validateLed(led);
-        if (!check.ok) return check;
+        CommandResult ledCheck = validateLed(led);
+        if (!ledCheck.ok) {
+            return ledCheck;
+        }
         return writeNode("rgbcolor", String.format(Locale.US, "%d %06x\n", led, color24(color)));
     }
 
@@ -76,13 +69,44 @@ final class Aw20072Controller {
     }
 
     CommandResult setRgbBrightness(int led, int rgb) {
-        CommandResult check = validateLed(led);
-        if (!check.ok) return check;
+        CommandResult ledCheck = validateLed(led);
+        if (!ledCheck.ok) {
+            return ledCheck;
+        }
         return writeNode("rgbbrightness", String.format(Locale.US, "%d %06x\n", led, color24(rgb)));
     }
 
     CommandResult setAllRgbBrightness(int rgb) {
         return writeNode("allrgbbrightness", String.format(Locale.US, "%06x\n", color24(rgb)));
+    }
+
+    CommandResult setLight(int led, int brightness, int color) {
+        CommandResult ledCheck = validateLed(led);
+        if (!ledCheck.ok) {
+            return ledCheck;
+        }
+        if (brightness <= 0) {
+            return CommandResult.fail("light brightness must be 1..63");
+        }
+        return writeNode("light", String.format(Locale.US, "%d %d %06x\n", led, clamp(brightness, 1, 63), color24(color)));
+    }
+
+    CommandResult setAllLight(int brightness, int color) {
+        if (brightness <= 0) {
+            return CommandResult.fail("all_light brightness must be 1..63");
+        }
+        return writeNode("all_light", String.format(Locale.US, "%d %06x\n", clamp(brightness, 1, 63), color24(color)));
+    }
+
+    CommandResult setAloneLight(int led, int brightness, int color) {
+        if (led == 0) {
+            return writeNode("alone_light", "0 0 0\n");
+        }
+        CommandResult ledCheck = validateLed(led);
+        if (!ledCheck.ok) {
+            return ledCheck;
+        }
+        return writeNode("alone_light", String.format(Locale.US, "%d %d %06x\n", led, clamp(brightness, 0, 63), color24(color)));
     }
 
     CommandResult setI2cLog(int enabled) {
@@ -91,19 +115,25 @@ final class Aw20072Controller {
 
     CommandResult readNode(String node) {
         File target = new File(sysfsDir, node);
-        if (!target.exists()) return CommandResult.fail("missing node: " + target.getAbsolutePath());
+        if (!target.exists()) {
+            return CommandResult.fail("missing node: " + target.getAbsolutePath());
+        }
         try {
             return CommandResult.ok(readDirect(target).trim());
         } catch (IOException directError) {
             CommandResult rootResult = readWithSu(target);
-            if (!rootResult.ok) return CommandResult.fail(rootResult.message + "; direct read failed: " + directError.getMessage());
+            if (!rootResult.ok) {
+                return CommandResult.fail(rootResult.message + "; direct read failed: " + directError.getMessage());
+            }
             return rootResult;
         }
     }
 
     private CommandResult writeNode(String node, String payload) {
         File target = new File(sysfsDir, node);
-        if (!target.exists()) return CommandResult.fail("missing node: " + target.getAbsolutePath());
+        if (!target.exists()) {
+            return CommandResult.fail("missing node: " + target.getAbsolutePath());
+        }
 
         IOException directError = null;
         if (!forceRoot) {
@@ -157,7 +187,9 @@ final class Aw20072Controller {
             int exitCode = process.waitFor();
             String stdout = readAll(process.getInputStream()).trim();
             String stderr = readAll(process.getErrorStream()).trim();
-            if (exitCode == 0) return CommandResult.ok(successMessage == null ? stdout : successMessage);
+            if (exitCode == 0) {
+                return CommandResult.ok(successMessage == null ? stdout : successMessage);
+            }
             String details = stderr.length() == 0 ? stdout : stderr;
             return CommandResult.fail("su failed (" + exitCode + "): " + details);
         } catch (IOException error) {
@@ -166,7 +198,9 @@ final class Aw20072Controller {
             Thread.currentThread().interrupt();
             return CommandResult.fail("su interrupted");
         } finally {
-            if (process != null) process.destroy();
+            if (process != null) {
+                process.destroy();
+            }
         }
     }
 
@@ -174,7 +208,9 @@ final class Aw20072Controller {
         ByteArrayOutputStream bytes = new ByteArrayOutputStream();
         byte[] buffer = new byte[1024];
         int read;
-        while ((read = input.read(buffer)) != -1) bytes.write(buffer, 0, read);
+        while ((read = input.read(buffer)) != -1) {
+            bytes.write(buffer, 0, read);
+        }
         return new String(bytes.toByteArray(), UTF_8);
     }
 
@@ -187,13 +223,19 @@ final class Aw20072Controller {
     }
 
     private static int clamp(int value, int min, int max) {
-        if (value < min) return min;
-        if (value > max) return max;
+        if (value < min) {
+            return min;
+        }
+        if (value > max) {
+            return max;
+        }
         return value;
     }
 
     private static CommandResult validateLed(int led) {
-        if (led < 1 || led > LED_COUNT) return CommandResult.fail("light number must be 1..16");
+        if (led < 1 || led > LED_COUNT) {
+            return CommandResult.fail("light number must be 1..16");
+        }
         return CommandResult.ok("ok");
     }
 
