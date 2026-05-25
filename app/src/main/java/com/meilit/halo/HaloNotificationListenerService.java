@@ -43,4 +43,9 @@ public final class HaloNotificationListenerService extends NotificationListenerS
             HaloEngine.get(this).pulseNotification(color);
         }
     }
+
+    @Override
+    public void onNotificationRemoved(StatusBarNotification sbn) {
+        HaloEngine.get(this).restoreOrOff();
+    }
 }
