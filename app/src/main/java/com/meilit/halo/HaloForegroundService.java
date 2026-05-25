@@ -37,6 +37,8 @@ public final class HaloForegroundService extends Service {
     private ContentObserver volumeObserver;
     private PowerManager.WakeLock wakeLock;
     private boolean volumeFallbackRunning;
+    private int activeFftFrames;
+    private long lastIdleWriteAt;
 
     @Override
     public void onCreate() {
@@ -86,6 +88,8 @@ public final class HaloForegroundService extends Service {
 
     private void startVisualizerOrFallback() {
         stopVisualizer();
+        activeFftFrames = 0;
+        lastIdleWriteAt = 0L;
         if (Build.VERSION.SDK_INT >= 23 && checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
             startVolumeFallback();
             return;
@@ -96,33 +100,19 @@ public final class HaloForegroundService extends Service {
             visualizer.setDataCaptureListener(new Visualizer.OnDataCaptureListener() {
                 @Override
                 public void onWaveFormDataCapture(Visualizer visualizer, byte[] waveform, int samplingRate) {
-                    applyWaveform(waveform);
                 }
 
                 @Override
                 public void onFftDataCapture(Visualizer visualizer, byte[] fft, int samplingRate) {
                     applyFft(fft);
                 }
-            }, Visualizer.getMaxCaptureRate() / 2, true, true);
+            }, Visualizer.getMaxCaptureRate() / 2, false, true);
             visualizer.setEnabled(true);
             stopVolumeFallback();
         } catch (RuntimeException error) {
             stopVisualizer();
             startVolumeFallback();
         }
-    }
-
-    private void applyWaveform(byte[] waveform) {
-        if (waveform == null || waveform.length == 0) {
-            return;
-        }
-        long sum = 0;
-        for (byte value : waveform) {
-            int centered = (value & 0xFF) - 128;
-            sum += Math.abs(centered);
-        }
-        float energy = Math.min(1f, sum / (waveform.length * 96f));
-        engine.applyMusicEnergy(energy, energy * 0.7f, energy * 0.45f, energy);
     }
 
     private void applyFft(byte[] fft) {
@@ -134,8 +124,17 @@ public final class HaloForegroundService extends Service {
         float mid = bandEnergy(fft, Math.max(3, bins / 8), Math.max(4, bins / 3));
         float high = bandEnergy(fft, Math.max(4, bins / 3), bins);
         float energy = Math.min(1f, low * 0.55f + mid * 0.3f + high * 0.15f);
-        if (energy < 0.03f) {
-            engine.fadeToIdle(0x002964FF);
+        if (energy < 0.08f) {
+            activeFftFrames = 0;
+            long now = System.currentTimeMillis();
+            if (now - lastIdleWriteAt > 900L) {
+                lastIdleWriteAt = now;
+                engine.fadeToIdle(0x002964FF);
+            }
+            return;
+        }
+        activeFftFrames++;
+        if (activeFftFrames < 3) {
             return;
         }
         engine.applyMusicEnergy(low, mid, high, energy);
@@ -220,7 +219,7 @@ public final class HaloForegroundService extends Service {
         if (Build.VERSION.SDK_INT < 26) {
             return;
         }
-        NotificationChannel channel = new NotificationChannel(CHANNEL_ID, "Meilit Halo engine", NotificationManager.IMPORTANCE_LOW);
+        NotificationChannel channel = new NotificationChannel(CHANNEL_ID, "灵动光环后台", NotificationManager.IMPORTANCE_LOW);
         NotificationManager manager = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
         if (manager != null) {
             manager.createNotificationChannel(channel);
@@ -236,7 +235,7 @@ public final class HaloForegroundService extends Service {
         Notification.Builder builder = Build.VERSION.SDK_INT >= 26 ? new Notification.Builder(this, CHANNEL_ID) : new Notification.Builder(this);
         return builder
                 .setSmallIcon(android.R.drawable.ic_media_play)
-                .setContentTitle("Meilit Halo")
+                .setContentTitle("灵动光环")
                 .setContentText(text)
                 .setOngoing(true)
                 .setContentIntent(pendingIntent)
@@ -245,11 +244,11 @@ public final class HaloForegroundService extends Service {
 
     private String statusText() {
         if (visualizer != null) {
-            return "Music visualizer active";
+            return "音乐频谱监听中";
         }
         if (volumeFallbackRunning) {
-            return "Volume rhythm fallback active";
+            return "音量回退监听中";
         }
-        return "Background halo engine active";
+        return "后台服务运行中";
     }
 }
